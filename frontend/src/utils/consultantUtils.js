@@ -7,71 +7,80 @@ export const emptyConsultantForm = {
   status: "ACTIVE",
 };
 
-export const pageSize = 5;
+export const defaultDashboardStats = {
+  today: "",
+  totalConsultants: 0,
+  addedToday: 0,
+  newThisMonth: 0,
+  activeConsultants: 0,
+  inactiveConsultants: 0,
+  technologyDistribution: [],
+  experienceDistribution: [],
+  recentAdditions: [],
+};
 
-export function calculateStats(records) {
-  const now = new Date();
+export const pageSizeOptions = [5, 10, 15, 25];
+
+export const experienceRangeOptions = [
+  { value: "all", label: "All experience" },
+  { value: "0-2", label: "0-2 years" },
+  { value: "3-5", label: "3-5 years" },
+  { value: "6-8", label: "6-8 years" },
+  { value: "9+", label: "9+ years" },
+];
+
+export function normalizePagePayload(payload) {
   return {
-    totalConsultants: records.length,
-    newThisMonth: records.filter((consultant) => {
-      const createdAt = new Date(consultant.createdAt);
-      return (
-        createdAt.getFullYear() === now.getFullYear() &&
-        createdAt.getMonth() === now.getMonth()
-      );
-    }).length,
-    activeConsultants: records.filter((consultant) => consultant.status === "ACTIVE").length,
-    inactiveConsultants: records.filter((consultant) => consultant.status === "INACTIVE").length,
+    content: payload?.content || [],
+    totalPages: Math.max(payload?.totalPages || 1, 1),
+    totalElements: payload?.totalElements || 0,
+    pageNumber: payload?.number || 0,
+    pageSize: payload?.size || 10,
   };
 }
 
-export function normalizePagePayload(payload) {
-  return Array.isArray(payload) ? payload : payload.content || [];
-}
-
-export function filterConsultants(consultants, searchTerm) {
-  const term = searchTerm.trim().toLowerCase();
-  if (!term) {
-    return consultants;
+export function formatDisplayDate(value) {
+  if (!value) {
+    return "Today";
   }
 
-  return consultants.filter(
-    (consultant) =>
-      consultant.name.toLowerCase().includes(term) ||
-      consultant.technology.toLowerCase().includes(term) ||
-      consultant.experience.toString().includes(term)
-  );
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
 }
 
-export function sortConsultants(consultants, sortConfig) {
-  return [...consultants].sort((left, right) => {
-    const leftValue = left[sortConfig.key];
-    const rightValue = right[sortConfig.key];
+export function formatShortDate(value) {
+  if (!value) {
+    return "";
+  }
 
-    if (sortConfig.key === "experience" || sortConfig.key === "id") {
-      return sortConfig.direction === "asc"
-        ? Number(leftValue) - Number(rightValue)
-        : Number(rightValue) - Number(leftValue);
-    }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value));
+}
 
-    return sortConfig.direction === "asc"
-      ? String(leftValue).localeCompare(String(rightValue))
-      : String(rightValue).localeCompare(String(leftValue));
-  });
+export function getMaxCount(items) {
+  return Math.max(...items.map((item) => item.count), 1);
 }
 
 export function exportConsultantsCsv(consultants) {
-  const header = ["Name", "Email", "Phone", "Technology", "Experience", "Status"];
+  const header = ["ID", "Name", "Email", "Phone", "Technology", "Experience", "Status", "Created At"];
   const rows = consultants.map((consultant) => [
+    consultant.id,
     consultant.name,
     consultant.email,
     consultant.phone,
     consultant.technology,
     consultant.experience,
     consultant.status,
+    consultant.createdAt,
   ]);
   const csv = [header, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
+    .map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(","))
     .join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -81,4 +90,3 @@ export function exportConsultantsCsv(consultants) {
   link.click();
   URL.revokeObjectURL(url);
 }
-

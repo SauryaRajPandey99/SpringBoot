@@ -68,7 +68,7 @@ export function AuthPage({ onLogin }) {
     <main className="auth-shell">
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="auth-brand">
-          <p className="eyebrow">Java Web Project</p>
+          <p className="eyebrow">Consultant Suite</p>
           <h1>Consultant Management System</h1>
         </div>
 
@@ -131,4 +131,3 @@ export function AuthPage({ onLogin }) {
     </main>
   );
 }
-

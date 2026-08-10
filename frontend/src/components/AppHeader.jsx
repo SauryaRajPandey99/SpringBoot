@@ -1,75 +1,47 @@
-import { LogOut } from "lucide-react";
-
-// Scrolls to a section, then plays a short highlight animation directly via JS (no CSS needed)
-function scrollAndAnimate(sectionId, targetSelector, keyframes, options) {
-  const section = document.getElementById(sectionId);
-  if (!section) return;
-
-  section.scrollIntoView({ behavior: "smooth", block: "start" });
-
-  window.setTimeout(() => {
-    const target = targetSelector ? section.querySelector(targetSelector) : section;
-    if (!target) return;
-
-    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
-      target.focus();
-    }
-
-    target.animate(keyframes, options);
-  }, 400);
-}
-
-const blinkKeyframes = [
-  { boxShadow: "0 0 0 0 rgba(59,130,246,0)", backgroundColor: "transparent" },
-  { boxShadow: "0 0 0 4px rgba(59,130,246,0.4)", backgroundColor: "rgba(59,130,246,0.1)" },
-  { boxShadow: "0 0 0 0 rgba(59,130,246,0)", backgroundColor: "transparent" },
-];
-
-const typingKeyframes = [
-  { borderColor: "rgba(59,130,246,0)", boxShadow: "0 0 0 0 rgba(59,130,246,0)" },
-  { borderColor: "rgba(59,130,246,1)", boxShadow: "0 0 0 2px rgba(59,130,246,0.25)" },
-  { borderColor: "rgba(59,130,246,0)", boxShadow: "0 0 0 0 rgba(59,130,246,0)" },
-];
-
-const animOptions = { duration: 900, iterations: 1, easing: "ease-in-out" };
+import { Database, LayoutDashboard, LogOut, ShieldCheck, Upload, UserPlus, Users } from "lucide-react";
 
 export function AppHeader({ userEmail, onLogout }) {
   return (
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Java Web Project</p>
-          <h1>Consultant Management System</h1>
+    <aside className="sidebar">
+      <div className="brand-block">
+        <div className="brand-mark">
+          <Database size={23} aria-hidden="true" />
         </div>
-        <nav aria-label="Primary navigation">
-          <button type="button" onClick={() => document.getElementById("dashboard")?.scrollIntoView({ behavior: "smooth" })}>
-            Dashboard
-          </button>
-          <button
-              type="button"
-              onClick={() =>
-                  scrollAndAnimate(
-                      "consultants",
-                      "input[type='search'], input[name='search']",
-                      blinkKeyframes,
-                      animOptions
-                  )
-              }
-          >
-            Consultants
-          </button>
-          <button
-              type="button"
-              onClick={() =>
-                  scrollAndAnimate("consultant-form", "input, textarea", typingKeyframes, animOptions)
-              }
-          >
-            Add Consultant
-          </button>
-          <button type="button" className="logout-button" onClick={onLogout} title={`Log out ${userEmail}`}>
-            <LogOut size={16} aria-hidden="true" />
-            Logout
-          </button>
-        </nav>
-      </header>
+        <div>
+          <p className="eyebrow">Consultant Suite</p>
+          <h1>Management System</h1>
+        </div>
+      </div>
+
+      <nav className="sidebar-nav" aria-label="Primary navigation">
+        <button type="button" onClick={() => document.getElementById("dashboard")?.scrollIntoView()}>
+          <LayoutDashboard size={18} aria-hidden="true" />
+          Dashboard
+        </button>
+        <button type="button" onClick={() => document.getElementById("consultants")?.scrollIntoView()}>
+          <Users size={18} aria-hidden="true" />
+          Consultants
+        </button>
+        <button type="button" onClick={() => document.getElementById("import")?.scrollIntoView()}>
+          <Upload size={18} aria-hidden="true" />
+          Import
+        </button>
+        <button type="button" onClick={() => document.getElementById("consultant-form")?.scrollIntoView()}>
+          <UserPlus size={18} aria-hidden="true" />
+          Add Consultant
+        </button>
+      </nav>
+
+      <div className="sidebar-footer">
+        <div className="signed-in-card">
+          <ShieldCheck size={18} aria-hidden="true" />
+          <span>{userEmail}</span>
+        </div>
+        <button type="button" className="logout-button" onClick={onLogout} title={`Log out ${userEmail}`}>
+          <LogOut size={16} aria-hidden="true" />
+          Logout
+        </button>
+      </div>
+    </aside>
   );
 }

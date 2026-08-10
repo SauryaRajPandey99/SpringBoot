@@ -1,13 +1,25 @@
 import { apiRequest } from "./http";
 
 export const consultantsApi = {
-  async list({ search = "", page = 0, size = 100, sortBy = "name", direction = "asc" } = {}) {
+  async list({
+    search = "",
+    page = 0,
+    size = 10,
+    sortBy = "name",
+    direction = "asc",
+    status = "",
+    technology = "",
+    experienceRange = "",
+  } = {}) {
     const params = new URLSearchParams({
       search,
       page: String(page),
       size: String(size),
       sortBy,
       direction,
+      status,
+      technology,
+      experienceRange,
     });
     return apiRequest(`/consultants?${params.toString()}`);
   },
@@ -35,5 +47,14 @@ export const consultantsApi = {
       method: "DELETE",
     });
   },
-};
 
+  async importExcel(file) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    return apiRequest("/consultants/import", {
+      method: "POST",
+      body: formData,
+    });
+  },
+};

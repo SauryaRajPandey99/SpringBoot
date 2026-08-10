@@ -3,10 +3,12 @@ package com.example.consultantmanagement.controller;
 import com.example.consultantmanagement.dto.ConsultantRequest;
 import com.example.consultantmanagement.dto.ConsultantResponse;
 import com.example.consultantmanagement.dto.DashboardStatsResponse;
+import com.example.consultantmanagement.dto.ImportSummaryResponse;
 import com.example.consultantmanagement.service.ConsultantService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/consultants")
@@ -34,8 +37,11 @@ public class ConsultantController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "5") int size,
             @RequestParam(defaultValue = "name") String sortBy,
-            @RequestParam(defaultValue = "asc") String direction) {
-        return consultantService.findConsultants(search, page, size, sortBy, direction);
+            @RequestParam(defaultValue = "asc") String direction,
+            @RequestParam(defaultValue = "") String status,
+            @RequestParam(defaultValue = "") String technology,
+            @RequestParam(defaultValue = "") String experienceRange) {
+        return consultantService.findConsultants(search, page, size, sortBy, direction, status, technology, experienceRange);
     }
 
     @GetMapping("/stats")
@@ -54,6 +60,11 @@ public class ConsultantController {
         return consultantService.createConsultant(request);
     }
 
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ImportSummaryResponse importConsultants(@RequestParam("file") MultipartFile file) {
+        return consultantService.importConsultants(file);
+    }
+
     @PutMapping("/{id}")
     public ConsultantResponse updateConsultant(
             @PathVariable Long id,
@@ -67,4 +78,3 @@ public class ConsultantController {
         consultantService.deleteConsultant(id);
     }
 }
-

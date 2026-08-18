@@ -460,7 +460,7 @@ public class ConsultantService {
     private void applyRequest(Consultant consultant, ConsultantRequest request) {
         consultant.setName(request.getName().trim());
         consultant.setEmail(normalizeEmail(request.getEmail()));
-        consultant.setPhone(request.getPhone().trim());
+        consultant.setPhone(normalizePhone(request.getPhone()));
         consultant.setTechnology(request.getTechnology().trim());
         consultant.setExperience(request.getExperience());
         consultant.setStatus(request.getStatus());
@@ -473,7 +473,7 @@ public class ConsultantService {
                 || consultantRepository.findByEmailIgnoreCase(normalizeEmail(request.getEmail()))
                 .filter(existing -> belongsToAnotherConsultant(existing, currentConsultantId))
                 .isPresent()
-                || consultantRepository.findByPhone(request.getPhone().trim())
+                || consultantRepository.findByPhone(normalizePhone(request.getPhone()))
                 .filter(existing -> belongsToAnotherConsultant(existing, currentConsultantId))
                 .isPresent();
 
@@ -491,7 +491,7 @@ public class ConsultantService {
         List<String> duplicates = new ArrayList<>();
         String name = request.getName().trim();
         String email = normalizeEmail(request.getEmail());
-        String phone = request.getPhone().trim();
+        String phone = normalizePhone(request.getPhone());
 
         if (importedNames.contains(name.toLowerCase(Locale.ROOT)) || consultantRepository.findByNameIgnoreCase(name).isPresent()) {
             duplicates.add("name");
@@ -515,12 +515,12 @@ public class ConsultantService {
             Set<String> importedPhones) {
         importedNames.add(request.getName().trim().toLowerCase(Locale.ROOT));
         importedEmails.add(normalizeEmail(request.getEmail()));
-        importedPhones.add(request.getPhone().trim());
+        importedPhones.add(normalizePhone(request.getPhone()));
     }
 
     private java.util.Optional<Consultant> findExistingConsultantForImport(ConsultantRequest request) {
         return consultantRepository.findByEmailIgnoreCase(normalizeEmail(request.getEmail()))
-                .or(() -> consultantRepository.findByPhone(request.getPhone().trim()))
+                .or(() -> consultantRepository.findByPhone(normalizePhone(request.getPhone())))
                 .or(() -> consultantRepository.findByNameIgnoreCase(request.getName().trim()));
     }
 
@@ -601,7 +601,7 @@ public class ConsultantService {
         ConsultantRequest request = new ConsultantRequest();
         request.setName(name);
         request.setEmail(email);
-        request.setPhone(phone);
+        request.setPhone(normalizePhone(phone));
         request.setTechnology(technology);
 
         try {
@@ -943,6 +943,18 @@ public class ConsultantService {
 
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizePhone(String phone) {
+        if (phone == null) {
+            return "";
+        }
+
+        String digits = phone.replaceAll("\\D", "");
+        if (digits.length() == 11 && digits.startsWith("1")) {
+            return digits.substring(1);
+        }
+        return digits;
     }
 
     private record ParsedImportRow(

@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public class ConsultantRequest {
@@ -20,7 +21,7 @@ public class ConsultantRequest {
     private String email;
 
     @NotBlank(message = "Phone is required")
-    @Size(min = 5, max = 20, message = "Phone must be between 5 and 20 characters")
+    @Pattern(regexp = "^\\d{10}$", message = "Phone must be exactly 10 digits")
     private String phone;
 
     @NotBlank(message = "Technology is required")

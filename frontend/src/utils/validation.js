@@ -1,5 +1,6 @@
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordPattern = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+const phonePattern = /^\d{10}$/;
 
 export function validateAuthForm(values) {
   const errors = {};
@@ -27,8 +28,8 @@ export function validateConsultantForm(values) {
   }
 
   const phone = values.phone.trim();
-  if (phone.length < 5 || phone.length > 20) {
-    errors.phone = "Use 5 to 20 characters.";
+  if (!phonePattern.test(phone)) {
+    errors.phone = "Phone must be exactly 10 digits.";
   }
 
   if (!values.technology.trim()) {

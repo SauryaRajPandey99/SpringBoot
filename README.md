@@ -50,6 +50,7 @@ consultant_management_system
 The SQL script creates the database, consultant table, and user account table only. It does not insert consultant records, so you can add all data from the React app.
 
 Passwords must be at least 8 characters and include at least one letter and one number.
+Consultant phone numbers must be exactly 10 digits.
 
 ## Backend Setup
 

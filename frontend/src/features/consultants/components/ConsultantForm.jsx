@@ -11,7 +11,7 @@ export function ConsultantForm({
   const preview = {
     name: values.name.trim() || "New Consultant",
     email: values.email.trim() || "email@company.com",
-    phone: values.phone.trim() || "+1 555 000 0000",
+    phone: values.phone.trim() || "6175550101",
     technology: values.technology.trim() || "Technology",
     experience: values.experience || "0",
     status: values.status === "ACTIVE" ? "Active" : "Inactive",
@@ -62,10 +62,14 @@ export function ConsultantForm({
         </label>
         <input
           id="phone"
+          type="tel"
+          inputMode="numeric"
+          pattern="[0-9]{10}"
+          maxLength="10"
           className={`form-control ${errors.phone ? "is-invalid" : ""}`}
           value={values.phone}
-          onChange={(event) => onFieldChange("phone", event.target.value)}
-          placeholder="+1 555 230 1000"
+          onChange={(event) => onFieldChange("phone", event.target.value.replace(/\D/g, "").slice(0, 10))}
+          placeholder="6175550101"
         />
         {errors.phone && <div className="invalid-feedback">{errors.phone}</div>}
 

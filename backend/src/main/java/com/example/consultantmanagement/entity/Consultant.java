@@ -35,7 +35,7 @@ public class Consultant {
     @Column(nullable = false, unique = true, length = 160)
     private String email;
 
-    @Column(nullable = false, unique = true, length = 20)
+    @Column(nullable = false, unique = true, length = 10)
     private String phone;
 
     @Column(nullable = false, length = 120)

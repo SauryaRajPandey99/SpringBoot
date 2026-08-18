@@ -1,6 +1,5 @@
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordPattern = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
-const phonePattern = /^[0-9+()\-\s]{7,20}$/;
 
 export function validateAuthForm(values) {
   const errors = {};
@@ -27,8 +26,9 @@ export function validateConsultantForm(values) {
     errors.email = "Enter a valid email address.";
   }
 
-  if (!phonePattern.test(values.phone.trim())) {
-    errors.phone = "Use 7 to 20 digits or phone symbols.";
+  const phone = values.phone.trim();
+  if (phone.length < 5 || phone.length > 20) {
+    errors.phone = "Use 5 to 20 characters.";
   }
 
   if (!values.technology.trim()) {
@@ -53,4 +53,3 @@ export function sanitizeConsultantPayload(values) {
     experience: Number(values.experience),
   };
 }
-

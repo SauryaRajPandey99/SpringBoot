@@ -28,6 +28,25 @@ export const consultantsApi = {
     return apiRequest("/consultants/stats");
   },
 
+  async onboarded({
+    source = "all",
+    search = "",
+    page = 0,
+    size = 10,
+    sortBy = "importedAt",
+    direction = "desc",
+  } = {}) {
+    const params = new URLSearchParams({
+      source,
+      search,
+      page: String(page),
+      size: String(size),
+      sortBy,
+      direction,
+    });
+    return apiRequest(`/consultants/onboarded?${params.toString()}`);
+  },
+
   async create(consultant) {
     return apiRequest("/consultants", {
       method: "POST",
@@ -48,13 +67,19 @@ export const consultantsApi = {
     });
   },
 
-  async importExcel(file) {
+  async importFile(file) {
     const formData = new FormData();
     formData.append("file", file);
 
     return apiRequest("/consultants/import", {
       method: "POST",
       body: formData,
+    });
+  },
+
+  async downloadImportTemplate() {
+    return apiRequest("/consultants/import-template", {
+      responseType: "blob",
     });
   },
 };

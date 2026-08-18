@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 import com.example.consultantmanagement.entity.Consultant;
 import com.example.consultantmanagement.entity.ConsultantStatus;
+import com.example.consultantmanagement.entity.OnboardingSource;
 
 public record ConsultantResponse(
         Long id,
@@ -13,6 +14,9 @@ public record ConsultantResponse(
         String technology,
         Integer experience,
         ConsultantStatus status,
+        OnboardingSource onboardingSource,
+        String importFileName,
+        LocalDateTime importedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 
@@ -25,8 +29,10 @@ public record ConsultantResponse(
                 consultant.getTechnology(),
                 consultant.getExperience(),
                 consultant.getStatus(),
+                consultant.getOnboardingSource(),
+                consultant.getImportFileName(),
+                consultant.getImportedAt(),
                 consultant.getCreatedAt(),
                 consultant.getUpdatedAt());
     }
 }
-

@@ -7,8 +7,10 @@ import com.example.consultantmanagement.dto.ImportSummaryResponse;
 import com.example.consultantmanagement.service.ConsultantService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -49,6 +51,17 @@ public class ConsultantController {
         return consultantService.getDashboardStats();
     }
 
+    @GetMapping("/onboarded")
+    public Page<ConsultantResponse> getOnboardedConsultants(
+            @RequestParam(defaultValue = "all") String source,
+            @RequestParam(defaultValue = "") String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "importedAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String direction) {
+        return consultantService.findOnboardedConsultants(source, search, page, size, sortBy, direction);
+    }
+
     @GetMapping("/{id}")
     public ConsultantResponse getConsultant(@PathVariable Long id) {
         return consultantService.getConsultant(id);
@@ -63,6 +76,13 @@ public class ConsultantController {
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ImportSummaryResponse importConsultants(@RequestParam("file") MultipartFile file) {
         return consultantService.importConsultants(file);
+    }
+
+    @GetMapping(value = "/import-template", produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    public ResponseEntity<byte[]> downloadImportTemplate() {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=consultant-import-template.xlsx")
+                .body(consultantService.buildImportTemplate());
     }
 
     @PutMapping("/{id}")

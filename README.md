@@ -6,10 +6,16 @@ This project is a Java web application for managing consultant records. It conta
 
 - Dashboard with total, new-this-month, active, and inactive consultant counts
 - Backend-powered dashboard analytics with today's date, today's additions, technology distribution, experience distribution, and recent additions
+- Modern Talent Desk dashboard with a collapsible sidebar, workspace status ribbon, skill map, experience ladder, activity timeline, and action dock
+- Dashboard table view with clickable technology and experience filters
 - Add consultant form with validation
-- Responsive consultant table
+- Add/edit consultant view with a live record preview
+- Responsive consultant table with contact details, filter chips, reset, refresh, sorting, and pagination
+- Shortlist view for saving selected consultants and exporting that smaller list
+- Onboarded view for consultants connected to Excel or PDF uploads, with source filtering, file names, and latest upload review
 - Update and delete consultant workflows
-- Excel import with row-level duplicate and validation reporting
+- Excel and text-based PDF import with row-level duplicate and validation reporting
+- CSV and PDF download options for consultant lists
 - Search by ID, name, email, phone, or technology
 - Server-side filtering, sorting, and pagination
 - REST API integration from React to Spring Boot
@@ -62,6 +68,8 @@ export DB_PASSWORD=your_mysql_password
 mvn spring-boot:run
 ```
 
+If the backend log says `using password: NO`, the `DB_PASSWORD` value was not set in that terminal.
+
 The API runs at:
 
 ```text
@@ -96,9 +104,11 @@ The frontend uses `VITE_API_BASE_URL=http://localhost:8080/api` by default. You 
 | --- | --- | --- |
 | GET | `/api/consultants` | List consultants with search, pagination, and sorting |
 | GET | `/api/consultants/stats` | Dashboard totals |
+| GET | `/api/consultants/onboarded` | List consultants imported from Excel or PDF files |
+| GET | `/api/consultants/import-template` | Download Excel import template |
 | GET | `/api/consultants/{id}` | Get one consultant |
 | POST | `/api/consultants` | Add a consultant |
-| POST | `/api/consultants/import` | Import consultants from an Excel file |
+| POST | `/api/consultants/import` | Import consultants from an Excel or PDF file |
 | PUT | `/api/consultants/{id}` | Update a consultant |
 | DELETE | `/api/consultants/{id}` | Delete a consultant |
 | POST | `/api/auth/register` | Create an account |
@@ -109,6 +119,8 @@ List query examples:
 ```text
 /api/consultants?search=java&page=0&size=5&sortBy=name&direction=asc
 ```
+
+Excel import accepts the required columns by header name, so files can use common labels such as `Name`, `Email` or `Email ID`, `Phone`, `Technology`, `Experience`, and `Status`. Extra columns are ignored. PDF import supports text-based PDFs where each consultant appears in name, email, phone, technology, experience, and status order. Duplicate rows are not inserted again, but matching consultants are still linked to the upload so they appear in the Onboarded view.
 
 ## Submission Checklist
 

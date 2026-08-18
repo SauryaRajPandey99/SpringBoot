@@ -1,5 +1,6 @@
 package com.example.consultantmanagement.service;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDate;
@@ -12,6 +13,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import com.example.consultantmanagement.dto.ConsultantRequest;
@@ -22,6 +25,7 @@ import com.example.consultantmanagement.dto.ImportRowResultResponse;
 import com.example.consultantmanagement.dto.ImportSummaryResponse;
 import com.example.consultantmanagement.entity.Consultant;
 import com.example.consultantmanagement.entity.ConsultantStatus;
+import com.example.consultantmanagement.entity.OnboardingSource;
 import com.example.consultantmanagement.exception.DuplicateConsultantException;
 import com.example.consultantmanagement.exception.ResourceNotFoundException;
 import com.example.consultantmanagement.repository.ConsultantRepository;
@@ -30,17 +34,25 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import org.apache.poi.EncryptedDocumentException;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -50,6 +62,20 @@ import org.springframework.web.multipart.MultipartFile;
 public class ConsultantService {
 
     private static final int MAX_PAGE_SIZE = 50;
+    private static final Pattern PDF_EMAIL_PATTERN = Pattern.compile(
+            "([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern PDF_PHONE_TECHNOLOGY_PATTERN = Pattern.compile("^([+\\d][+\\d\\s().-]{6,}\\d)\\s+(.+)$");
+    private static final Pattern PDF_STATUS_PATTERN = Pattern.compile("\\b(ACTIVE|INACTIVE)\\b\\s*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PDF_EXPERIENCE_PATTERN = Pattern.compile("(\\d{1,2})(?:\\s*(?:years?|yrs?|yoe))?\\s*$", Pattern.CASE_INSENSITIVE);
+    private static final String[] IMPORT_HEADERS = {
+            "Name",
+            "Email",
+            "Phone",
+            "Technology",
+            "Experience",
+            "Status"
+    };
     private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
             "id",
             "name",
@@ -57,7 +83,9 @@ public class ConsultantService {
             "technology",
             "experience",
             "status",
-            "createdAt");
+            "createdAt",
+            "importedAt",
+            "onboardingSource");
 
     private final ConsultantRepository consultantRepository;
     private final Validator validator;
@@ -83,6 +111,47 @@ public class ConsultantService {
                 buildSort(sortBy, direction));
 
         Specification<Consultant> specification = buildSpecification(search, status, technology, experienceRange);
+
+        return consultantRepository.findAll(specification, pageable)
+                .map(ConsultantResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ConsultantResponse> findOnboardedConsultants(
+            String source,
+            String search,
+            int page,
+            int size,
+            String sortBy,
+            String direction) {
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                buildSort(sortBy, direction));
+
+        OnboardingSource selectedSource = parseOnboardingSource(source);
+        String searchTerm = StringUtils.hasText(search) ? search.trim().toLowerCase(Locale.ROOT) : "";
+
+        Specification<Consultant> specification = (root, query, criteriaBuilder) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (selectedSource == null) {
+                predicates.add(root.get("onboardingSource").in(OnboardingSource.EXCEL, OnboardingSource.PDF));
+            } else {
+                predicates.add(criteriaBuilder.equal(root.get("onboardingSource"), selectedSource));
+            }
+
+            if (StringUtils.hasText(searchTerm)) {
+                String pattern = "%" + searchTerm + "%";
+                predicates.add(criteriaBuilder.or(
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("name")), pattern),
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("email")), pattern),
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("technology")), pattern),
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("importFileName")), pattern)));
+            }
+
+            return criteriaBuilder.and(predicates.toArray(Predicate[]::new));
+        };
 
         return consultantRepository.findAll(specification, pageable)
                 .map(ConsultantResponse::from);
@@ -115,23 +184,58 @@ public class ConsultantService {
         consultantRepository.delete(consultant);
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ImportSummaryResponse importConsultants(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Upload a valid Excel file.");
+            throw new IllegalArgumentException("Upload a valid Excel or PDF file.");
         }
 
-        String originalFilename = String.valueOf(file.getOriginalFilename()).toLowerCase(Locale.ROOT);
-        if (!originalFilename.endsWith(".xlsx") && !originalFilename.endsWith(".xls")) {
-            throw new IllegalArgumentException("Only Excel files with .xlsx or .xls extension are supported.");
+        String originalFilename = String.valueOf(file.getOriginalFilename());
+        String lowerFilename = originalFilename.toLowerCase(Locale.ROOT);
+        if (!lowerFilename.endsWith(".xlsx") && !lowerFilename.endsWith(".xls") && !lowerFilename.endsWith(".pdf")) {
+            throw new IllegalArgumentException("Only Excel (.xlsx, .xls) and PDF (.pdf) files are supported.");
+        }
+
+        if (lowerFilename.endsWith(".pdf")) {
+            return importPdf(file, originalFilename);
         }
 
         try (InputStream inputStream = file.getInputStream();
                 Workbook workbook = WorkbookFactory.create(inputStream)) {
-            return importWorkbook(workbook);
+            return importWorkbook(workbook, OnboardingSource.EXCEL, originalFilename);
         } catch (EncryptedDocumentException exception) {
             throw new IllegalArgumentException("The Excel file is password protected and cannot be imported.");
         } catch (IOException exception) {
             throw new IllegalArgumentException("Unable to read the Excel file. Please check the file format.");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] buildImportTemplate() {
+        try (Workbook workbook = new XSSFWorkbook();
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("Consultants");
+            sheet.createFreezePane(0, 1);
+
+            CellStyle headerStyle = workbook.createCellStyle();
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+
+            Row header = sheet.createRow(0);
+            for (int index = 0; index < IMPORT_HEADERS.length; index++) {
+                Cell cell = header.createCell(index);
+                cell.setCellValue(IMPORT_HEADERS[index]);
+                cell.setCellStyle(headerStyle);
+                sheet.autoSizeColumn(index);
+                sheet.setColumnWidth(index, Math.max(sheet.getColumnWidth(index), 4500));
+            }
+
+            workbook.write(outputStream);
+            return outputStream.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to create the Excel import template.");
         }
     }
 
@@ -160,13 +264,40 @@ public class ConsultantService {
                 recentAdditions);
     }
 
-    private ImportSummaryResponse importWorkbook(Workbook workbook) {
+    private ImportSummaryResponse importPdf(MultipartFile file, String originalFilename) {
+        try (InputStream inputStream = file.getInputStream();
+                PDDocument document = PDDocument.load(inputStream);
+                Workbook workbook = new XSSFWorkbook()) {
+            String text = new PDFTextStripper().getText(document);
+            Sheet sheet = workbook.createSheet("PDF Import");
+            Row header = sheet.createRow(0);
+            for (int index = 0; index < IMPORT_HEADERS.length; index++) {
+                header.createCell(index).setCellValue(IMPORT_HEADERS[index]);
+            }
+
+            List<String[]> rows = parsePdfConsultantRows(text);
+            for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+                Row row = sheet.createRow(rowIndex + 1);
+                String[] values = rows.get(rowIndex);
+                for (int columnIndex = 0; columnIndex < values.length; columnIndex++) {
+                    row.createCell(columnIndex).setCellValue(values[columnIndex]);
+                }
+            }
+
+            return importWorkbook(workbook, OnboardingSource.PDF, originalFilename);
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Unable to read the PDF file. Use a text-based PDF with consultant rows.");
+        }
+    }
+
+    private ImportSummaryResponse importWorkbook(Workbook workbook, OnboardingSource source, String originalFilename) {
         if (workbook.getNumberOfSheets() == 0) {
-            throw new IllegalArgumentException("The Excel file does not contain any sheets.");
+            throw new IllegalArgumentException("The uploaded file does not contain any readable rows.");
         }
 
         Sheet sheet = workbook.getSheetAt(0);
         DataFormatter formatter = new DataFormatter();
+        ColumnMapping columnMapping = resolveColumnMapping(sheet, formatter);
         Set<String> importedNames = new HashSet<>();
         Set<String> importedEmails = new HashSet<>();
         Set<String> importedPhones = new HashSet<>();
@@ -175,9 +306,12 @@ public class ConsultantService {
         int added = 0;
         int skippedDuplicates = 0;
         int failedValidation = 0;
+        LocalDateTime importedAt = LocalDateTime.now();
+        List<ConsultantResponse> uploadedConsultants = new ArrayList<>();
+        Set<Long> uploadedConsultantIds = new HashSet<>();
 
         for (Row row : sheet) {
-            if (row.getRowNum() == 0 && isHeaderRow(row, formatter)) {
+            if (row.getRowNum() <= columnMapping.headerRowIndex()) {
                 continue;
             }
 
@@ -186,7 +320,7 @@ public class ConsultantService {
             }
 
             totalRows++;
-            ParsedImportRow parsedRow = parseImportRow(row, formatter);
+            ParsedImportRow parsedRow = parseImportRow(row, formatter, columnMapping);
 
             if (parsedRow.errorMessage() != null) {
                 failedValidation++;
@@ -215,6 +349,9 @@ public class ConsultantService {
             List<String> duplicateFields = findDuplicateFields(request, importedNames, importedEmails, importedPhones);
             if (!duplicateFields.isEmpty()) {
                 skippedDuplicates++;
+                findExistingConsultantForImport(request)
+                        .map(consultant -> tagConsultantAsUploaded(consultant, source, originalFilename, importedAt))
+                        .ifPresent(consultant -> addUploadedConsultant(uploadedConsultants, uploadedConsultantIds, consultant));
                 results.add(new ImportRowResultResponse(
                         row.getRowNum() + 1,
                         "DUPLICATE",
@@ -224,20 +361,45 @@ public class ConsultantService {
                 continue;
             }
 
-            Consultant consultant = new Consultant();
-            applyRequest(consultant, request);
-            consultantRepository.save(consultant);
-            rememberImportedKeys(request, importedNames, importedEmails, importedPhones);
-            added++;
-            results.add(new ImportRowResultResponse(
-                    row.getRowNum() + 1,
-                    "ADDED",
-                    "Imported successfully.",
-                    request.getName(),
-                    request.getEmail()));
+            try {
+                Consultant consultant = new Consultant();
+                applyRequest(consultant, request);
+                consultant.setOnboardingSource(source);
+                consultant.setImportFileName(originalFilename);
+                consultant.setImportedAt(importedAt);
+                Consultant savedConsultant = consultantRepository.saveAndFlush(consultant);
+                addUploadedConsultant(uploadedConsultants, uploadedConsultantIds, savedConsultant);
+                rememberImportedKeys(request, importedNames, importedEmails, importedPhones);
+                added++;
+                results.add(new ImportRowResultResponse(
+                        row.getRowNum() + 1,
+                        "ADDED",
+                        "Imported successfully.",
+                        request.getName(),
+                        request.getEmail()));
+            } catch (DataIntegrityViolationException exception) {
+                skippedDuplicates++;
+                findExistingConsultantForImport(request)
+                        .map(consultant -> tagConsultantAsUploaded(consultant, source, originalFilename, importedAt))
+                        .ifPresent(consultant -> addUploadedConsultant(uploadedConsultants, uploadedConsultantIds, consultant));
+                results.add(new ImportRowResultResponse(
+                        row.getRowNum() + 1,
+                        "DUPLICATE",
+                        "Skipped because this row conflicts with an existing name, email, or phone.",
+                        request.getName(),
+                        request.getEmail()));
+            } catch (RuntimeException exception) {
+                failedValidation++;
+                results.add(new ImportRowResultResponse(
+                        row.getRowNum() + 1,
+                        "FAILED",
+                        "Could not save this row. Check the field values and try again.",
+                        request.getName(),
+                        request.getEmail()));
+            }
         }
 
-        return new ImportSummaryResponse(totalRows, added, skippedDuplicates, failedValidation, results);
+        return new ImportSummaryResponse(totalRows, added, skippedDuplicates, failedValidation, results, uploadedConsultants);
     }
 
     private Specification<Consultant> buildSpecification(
@@ -246,7 +408,7 @@ public class ConsultantService {
             String technology,
             String experienceRange) {
         String searchTerm = StringUtils.hasText(search) ? search.trim().toLowerCase(Locale.ROOT) : "";
-        String technologyTerm = StringUtils.hasText(technology) ? technology.trim().toLowerCase(Locale.ROOT) : "";
+        String technologyTerm = normalizeTechnologySearchTerm(technology);
         ConsultantStatus selectedStatus = parseStatusFilter(status);
         ExperienceBounds bounds = parseExperienceRange(experienceRange);
 
@@ -356,6 +518,32 @@ public class ConsultantService {
         importedPhones.add(request.getPhone().trim());
     }
 
+    private java.util.Optional<Consultant> findExistingConsultantForImport(ConsultantRequest request) {
+        return consultantRepository.findByEmailIgnoreCase(normalizeEmail(request.getEmail()))
+                .or(() -> consultantRepository.findByPhone(request.getPhone().trim()))
+                .or(() -> consultantRepository.findByNameIgnoreCase(request.getName().trim()));
+    }
+
+    private Consultant tagConsultantAsUploaded(
+            Consultant consultant,
+            OnboardingSource source,
+            String originalFilename,
+            LocalDateTime importedAt) {
+        consultant.setOnboardingSource(source);
+        consultant.setImportFileName(originalFilename);
+        consultant.setImportedAt(importedAt);
+        return consultantRepository.saveAndFlush(consultant);
+    }
+
+    private void addUploadedConsultant(
+            List<ConsultantResponse> uploadedConsultants,
+            Set<Long> uploadedConsultantIds,
+            Consultant consultant) {
+        if (consultant.getId() != null && uploadedConsultantIds.add(consultant.getId())) {
+            uploadedConsultants.add(ConsultantResponse.from(consultant));
+        }
+    }
+
     private List<DistributionItemResponse> buildTechnologyDistribution(List<Consultant> consultants) {
         Map<String, String> labels = new HashMap<>();
         Map<String, Long> counts = new HashMap<>();
@@ -400,13 +588,15 @@ public class ConsultantService {
                 .toList();
     }
 
-    private ParsedImportRow parseImportRow(Row row, DataFormatter formatter) {
-        String name = readCell(row, 0, formatter);
-        String email = readCell(row, 1, formatter);
-        String phone = readCell(row, 2, formatter);
-        String technology = readCell(row, 3, formatter);
-        String experienceValue = readCell(row, 4, formatter);
-        String statusValue = readCell(row, 5, formatter);
+    private ParsedImportRow parseImportRow(Row row, DataFormatter formatter, ColumnMapping columnMapping) {
+        String name = readCell(row, columnMapping.nameColumn(), formatter);
+        String email = readCell(row, columnMapping.emailColumn(), formatter);
+        String phone = readCell(row, columnMapping.phoneColumn(), formatter);
+        String technology = readCell(row, columnMapping.technologyColumn(), formatter);
+        String experienceValue = readCell(row, columnMapping.experienceColumn(), formatter);
+        String statusValue = columnMapping.statusColumn() == null
+                ? ""
+                : readCell(row, columnMapping.statusColumn(), formatter);
 
         ConsultantRequest request = new ConsultantRequest();
         request.setName(name);
@@ -427,6 +617,166 @@ public class ConsultantService {
         }
 
         return new ParsedImportRow(request, null, name, email);
+    }
+
+    private ColumnMapping resolveColumnMapping(Sheet sheet, DataFormatter formatter) {
+        for (Row row : sheet) {
+            if (isBlankRow(row, formatter)) {
+                continue;
+            }
+
+            Map<String, Integer> headers = new HashMap<>();
+            int lastCell = Math.max(row.getLastCellNum(), 0);
+            for (int index = 0; index < lastCell; index++) {
+                String header = normalizeHeader(readCell(row, index, formatter));
+                if (StringUtils.hasText(header)) {
+                    headers.putIfAbsent(header, index);
+                }
+            }
+
+            Integer nameColumn = findHeaderIndex(headers, "name", "full name", "consultant name", "candidate name");
+            Integer emailColumn = findHeaderIndex(headers, "email", "email id", "email address", "e mail", "e mail id");
+            Integer phoneColumn = findHeaderIndex(headers, "phone", "phone number", "mobile", "mobile number", "contact", "contact number");
+            Integer technologyColumn = findHeaderIndex(headers, "technology", "tech", "skill", "skills", "primary technology");
+            Integer experienceColumn = findHeaderIndex(headers, "experience", "exp", "years of experience", "yoe");
+            Integer statusColumn = findHeaderIndex(headers, "status", "active status", "availability");
+
+            if (nameColumn != null
+                    && emailColumn != null
+                    && phoneColumn != null
+                    && technologyColumn != null
+                    && experienceColumn != null) {
+                return new ColumnMapping(
+                        row.getRowNum(),
+                        nameColumn,
+                        emailColumn,
+                        phoneColumn,
+                        technologyColumn,
+                        experienceColumn,
+                        statusColumn);
+            }
+        }
+
+        return new ColumnMapping(-1, 0, 1, 2, 3, 4, 5);
+    }
+
+    private Integer findHeaderIndex(Map<String, Integer> headers, String... aliases) {
+        for (String alias : aliases) {
+            Integer index = headers.get(normalizeHeader(alias));
+            if (index != null) {
+                return index;
+            }
+        }
+        return null;
+    }
+
+    private List<String[]> parsePdfConsultantRows(String text) {
+        List<String[]> rows = new ArrayList<>();
+        if (!StringUtils.hasText(text)) {
+            return rows;
+        }
+
+        String[] lines = text.split("\\R");
+        for (String line : lines) {
+            String normalizedLine = line.replace('|', ' ').replaceAll("\\s+", " ").trim();
+            if (!StringUtils.hasText(normalizedLine) || looksLikeHeaderLine(normalizedLine)) {
+                continue;
+            }
+
+            Matcher emailMatcher = PDF_EMAIL_PATTERN.matcher(normalizedLine);
+            if (!emailMatcher.find()) {
+                continue;
+            }
+
+            String name = cleanupPdfName(normalizedLine.substring(0, emailMatcher.start()));
+            String email = emailMatcher.group(1);
+            String remaining = cleanupPdfValue(normalizedLine.substring(emailMatcher.end()));
+
+            Matcher statusMatcher = PDF_STATUS_PATTERN.matcher(remaining);
+            String status = "ACTIVE";
+            if (statusMatcher.find()) {
+                status = statusMatcher.group(1).toUpperCase(Locale.ROOT);
+                remaining = cleanupPdfValue(remaining.substring(0, statusMatcher.start()));
+            }
+
+            Matcher experienceMatcher = PDF_EXPERIENCE_PATTERN.matcher(remaining);
+            if (!experienceMatcher.find()) {
+                continue;
+            }
+            String experience = experienceMatcher.group(1);
+            remaining = cleanupPdfValue(remaining.substring(0, experienceMatcher.start()));
+
+            PhoneTechnology phoneTechnology = splitPdfPhoneAndTechnology(remaining);
+            if (phoneTechnology == null) {
+                continue;
+            }
+
+            String phone = phoneTechnology.phone();
+            String technology = phoneTechnology.technology();
+
+            if (StringUtils.hasText(name)
+                    && StringUtils.hasText(email)
+                    && StringUtils.hasText(phone)
+                    && StringUtils.hasText(technology)) {
+                rows.add(new String[] { name, email, phone, technology, experience, status });
+            }
+        }
+
+        return rows;
+    }
+
+    private PhoneTechnology splitPdfPhoneAndTechnology(String value) {
+        Matcher matcher = PDF_PHONE_TECHNOLOGY_PATTERN.matcher(value);
+        if (matcher.find()) {
+            return new PhoneTechnology(
+                    cleanupPdfValue(matcher.group(1)),
+                    cleanupPdfValue(matcher.group(2)));
+        }
+
+        int technologyStart = firstLetterIndex(value);
+        if (technologyStart <= 0) {
+            return null;
+        }
+
+        while (technologyStart > 0 && ".#+".indexOf(value.charAt(technologyStart - 1)) >= 0) {
+            technologyStart--;
+        }
+
+        return new PhoneTechnology(
+                cleanupPdfValue(value.substring(0, technologyStart)),
+                cleanupPdfValue(value.substring(technologyStart)));
+    }
+
+    private boolean looksLikeHeaderLine(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        return normalized.contains("name")
+                && normalized.contains("email")
+                && normalized.contains("phone");
+    }
+
+    private int firstLetterIndex(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (Character.isLetter(value.charAt(index))) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private String cleanupPdfValue(String value) {
+        return value == null
+                ? ""
+                : value.replaceAll("^[\\s,;:-]+", "")
+                        .replaceAll("[\\s,;:-]+$", "")
+                        .trim();
+    }
+
+    private String cleanupPdfName(String value) {
+        return value == null
+                ? ""
+                : value.replaceAll("^[#\\d\\s.,:-]+", "")
+                        .replaceAll("[\\s,;:-]+$", "")
+                        .trim();
     }
 
     private Integer parseExperience(String value) {
@@ -465,6 +815,22 @@ public class ConsultantService {
         return parseStatus(value);
     }
 
+    private OnboardingSource parseOnboardingSource(String value) {
+        if (!StringUtils.hasText(value) || "all".equalsIgnoreCase(value.trim())) {
+            return null;
+        }
+
+        try {
+            OnboardingSource source = OnboardingSource.valueOf(value.trim().toUpperCase(Locale.ROOT));
+            if (source == OnboardingSource.MANUAL) {
+                return null;
+            }
+            return source;
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Onboarding source must be EXCEL, PDF, or all.");
+        }
+    }
+
     private ExperienceBounds parseExperienceRange(String value) {
         if (!StringUtils.hasText(value) || "all".equalsIgnoreCase(value.trim())) {
             return null;
@@ -485,19 +851,24 @@ public class ConsultantService {
         return cell == null ? "" : formatter.formatCellValue(cell).trim();
     }
 
-    private boolean isHeaderRow(Row row, DataFormatter formatter) {
-        String firstCell = readCell(row, 0, formatter).toLowerCase(Locale.ROOT);
-        String secondCell = readCell(row, 1, formatter).toLowerCase(Locale.ROOT);
-        return firstCell.contains("name") && secondCell.contains("email");
-    }
-
     private boolean isBlankRow(Row row, DataFormatter formatter) {
-        for (int index = 0; index < 6; index++) {
+        int lastCell = Math.max(row.getLastCellNum(), 0);
+        for (int index = 0; index < lastCell; index++) {
             if (StringUtils.hasText(readCell(row, index, formatter))) {
                 return false;
             }
         }
         return true;
+    }
+
+    private String normalizeHeader(String value) {
+        return value == null
+                ? ""
+                : value.trim()
+                        .toLowerCase(Locale.ROOT)
+                        .replaceAll("[^a-z0-9]+", " ")
+                        .trim()
+                        .replaceAll("\\s+", " ");
     }
 
     private String formatValidationErrors(Set<ConstraintViolation<ConsultantRequest>> violations) {
@@ -513,6 +884,11 @@ public class ConsultantService {
             return "";
         }
 
+        String compact = trimmed.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+        if ("net".equals(compact) || ".net".equals(compact) || "dotnet".equals(compact)) {
+            return ".NET";
+        }
+
         String[] words = trimmed.split("\\s+");
         List<String> normalizedWords = new ArrayList<>();
         for (String word : words) {
@@ -523,6 +899,20 @@ public class ConsultantService {
             }
         }
         return String.join(" ", normalizedWords);
+    }
+
+    private String normalizeTechnologySearchTerm(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+
+        String trimmed = value.trim().toLowerCase(Locale.ROOT);
+        String compact = trimmed.replaceAll("\\s+", "");
+        if ("net".equals(compact) || ".net".equals(compact) || "dotnet".equals(compact)) {
+            return "net";
+        }
+
+        return trimmed;
     }
 
     private String getExperienceRange(Integer years) {
@@ -560,6 +950,21 @@ public class ConsultantService {
             String errorMessage,
             String name,
             String email) {
+    }
+
+    private record ColumnMapping(
+            int headerRowIndex,
+            int nameColumn,
+            int emailColumn,
+            int phoneColumn,
+            int technologyColumn,
+            int experienceColumn,
+            Integer statusColumn) {
+    }
+
+    private record PhoneTechnology(
+            String phone,
+            String technology) {
     }
 
     private record ExperienceBounds(

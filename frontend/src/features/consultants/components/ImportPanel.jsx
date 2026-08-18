@@ -1,8 +1,10 @@
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, UploadCloud } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, UploadCloud } from "lucide-react";
 import { useState } from "react";
 
-export function ImportPanel({ importing, importResult, onImport }) {
+export function ImportPanel({ importing, importResult, templateDownloading, onDownloadTemplate, onImport }) {
   const [selectedFile, setSelectedFile] = useState(null);
+  const [showAllRows, setShowAllRows] = useState(false);
+  const visibleRows = showAllRows ? importResult?.rows || [] : importResult?.rows?.slice(0, 6) || [];
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -19,18 +21,29 @@ export function ImportPanel({ importing, importResult, onImport }) {
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Bulk Import</p>
-          <h2 id="import-title">Excel Upload</h2>
+          <h2 id="import-title">File Upload</h2>
         </div>
-        <FileSpreadsheet size={22} aria-hidden="true" />
+        <div className="panel-actions">
+          <button
+            type="button"
+            className="btn btn-outline-primary btn-sm icon-button"
+            onClick={onDownloadTemplate}
+            disabled={templateDownloading}
+          >
+            <Download size={16} aria-hidden="true" />
+            {templateDownloading ? "Preparing" : "Excel Template"}
+          </button>
+          <FileSpreadsheet size={22} aria-hidden="true" />
+        </div>
       </div>
 
       <form className="import-dropzone" onSubmit={handleSubmit}>
         <UploadCloud size={32} aria-hidden="true" />
-        <label htmlFor="excel-file">Upload Excel file</label>
+        <label htmlFor="import-file">Upload Excel or PDF file</label>
         <input
-          id="excel-file"
+          id="import-file"
           type="file"
-          accept=".xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
         />
         <span>{selectedFile ? selectedFile.name : "No file selected"}</span>
@@ -50,7 +63,7 @@ export function ImportPanel({ importing, importResult, onImport }) {
           </div>
 
           <div className="import-row-list">
-            {importResult.rows.slice(0, 5).map((row) => (
+            {visibleRows.map((row) => (
               <div className={`import-row ${row.status.toLowerCase()}`} key={`${row.rowNumber}-${row.email}`}>
                 {row.status === "ADDED" ? (
                   <CheckCircle2 size={16} aria-hidden="true" />
@@ -63,6 +76,12 @@ export function ImportPanel({ importing, importResult, onImport }) {
               </div>
             ))}
           </div>
+
+          {importResult.rows.length > 6 && (
+            <button type="button" className="show-rows-button" onClick={() => setShowAllRows((current) => !current)}>
+              {showAllRows ? "Show fewer rows" : `Show all ${importResult.rows.length} rows`}
+            </button>
+          )}
         </div>
       )}
     </section>

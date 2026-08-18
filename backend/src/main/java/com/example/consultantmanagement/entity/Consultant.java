@@ -48,6 +48,15 @@ public class Consultant {
     @Column(nullable = false, length = 20)
     private ConsultantStatus status = ConsultantStatus.ACTIVE;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'MANUAL'")
+    private OnboardingSource onboardingSource = OnboardingSource.MANUAL;
+
+    @Column(length = 255)
+    private String importFileName;
+
+    private LocalDateTime importedAt;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -57,6 +66,9 @@ public class Consultant {
     @PrePersist
     public void onCreate() {
         LocalDateTime now = LocalDateTime.now();
+        if (onboardingSource == null) {
+            onboardingSource = OnboardingSource.MANUAL;
+        }
         createdAt = now;
         updatedAt = now;
     }
@@ -120,6 +132,30 @@ public class Consultant {
 
     public void setStatus(ConsultantStatus status) {
         this.status = status;
+    }
+
+    public OnboardingSource getOnboardingSource() {
+        return onboardingSource;
+    }
+
+    public void setOnboardingSource(OnboardingSource onboardingSource) {
+        this.onboardingSource = onboardingSource;
+    }
+
+    public String getImportFileName() {
+        return importFileName;
+    }
+
+    public void setImportFileName(String importFileName) {
+        this.importFileName = importFileName;
+    }
+
+    public LocalDateTime getImportedAt() {
+        return importedAt;
+    }
+
+    public void setImportedAt(LocalDateTime importedAt) {
+        this.importedAt = importedAt;
     }
 
     public LocalDateTime getCreatedAt() {

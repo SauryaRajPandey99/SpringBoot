@@ -7,5 +7,6 @@ public record ImportSummaryResponse(
         int added,
         int skippedDuplicates,
         int failedValidation,
-        List<ImportRowResultResponse> rows) {
+        List<ImportRowResultResponse> rows,
+        List<ConsultantResponse> uploadedConsultants) {
 }

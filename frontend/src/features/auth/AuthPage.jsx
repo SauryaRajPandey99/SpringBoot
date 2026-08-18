@@ -94,6 +94,7 @@ export function AuthPage({ onLogin }) {
             <input
               id="auth-email"
               type="email"
+              autoComplete="email"
               className={`form-control ${errors.email ? "is-invalid" : ""}`}
               value={values.email}
               onChange={(event) => updateField("email", event.target.value)}
@@ -110,6 +111,7 @@ export function AuthPage({ onLogin }) {
             <input
               id="auth-password"
               type="password"
+              autoComplete={isRegistering ? "new-password" : "current-password"}
               className={`form-control ${errors.password ? "is-invalid" : ""}`}
               value={values.password}
               onChange={(event) => updateField("password", event.target.value)}
